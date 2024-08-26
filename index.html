@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dijkstra en Mapa de Puno</title>
+    <style>
+        #map {
+            height: 100vh;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <script>
+        let map, markers = [], graph = {}, routes = {};
+        let directionsService;
+
+        function initMap() {
+            map = new google.maps.Map(document.getElementById('map'), {
+                center: {lat: -15.840221, lng: -70.021881},
+                zoom: 13
+            });
+
+            directionsService = new google.maps.DirectionsService();
+
+            map.addListener('click', (event) => {
+                addIntersectionMarker(event.latLng);
+            });
+        }
+
+        function addIntersectionMarker(location) {
+            let marker = new google.maps.Marker({
+                position: location,
+                map: map
+            });
+            markers.push(marker);
+
+            let markerId = markers.length - 1;
+            graph[markerId] = [];
+
+            markers.forEach((otherMarker, index) => {
+                if (markerId !== index) {
+                    calculateRouteBetweenNodes(location, otherMarker.getPosition(), (distance, route) => {
+                        if (distance && route) {
+                            graph[markerId].push({ node: index, weight: distance });
+                            graph[index].push({ node: markerId, weight: distance });
+
+                            routes[`${markerId}-${index}`] = route;
+                            routes[`${index}-${markerId}`] = route;
+
+                            if (markers.length > 1) {
+                                let shortestPath = dijkstra(0);
+                                drawShortestPath(shortestPath);
+                            }
+                        } else {
+                            console.error('No se pudo obtener la ruta entre nodos', markerId, index);
+                        }
+                    });
+                }
+            });
+        }
+
+        function calculateRouteBetweenNodes(start, end, callback) {
+            directionsService.route({
+                origin: start,
+                destination: end,
+                travelMode: google.maps.TravelMode.DRIVING
+            }, (response, status) => {
+                if (status === google.maps.DirectionsStatus.OK) {
+                    const route = response.routes[0];
+                    const distance = route.legs[0].distance.value; // Distancia en metros
+                    console.log(`Distancia entre nodos: ${distance} metros`);
+                    callback(distance, route);
+                } else {
+                    console.error('No se pudo calcular la ruta entre nodos: ' + status);
+                    callback(null, null);
+                }
+            });
+        }
+
+        function dijkstra(start) {
+            let distances = {};
+            let prev = {};
+            let pq = new PriorityQueue();
+
+            markers.forEach((_, index) => {
+                distances[index] = Infinity;
+                prev[index] = null;
+            });
+
+            distances[start] = 0;
+            pq.enqueue(start, 0);
+
+            while (!pq.isEmpty()) {
+                let {element: u} = pq.dequeue();
+
+                graph[u].forEach(({node: v, weight}) => {
+                    let alt = distances[u] + weight;
+                    if (alt < distances[v]) {
+                        distances[v] = alt;
+                        prev[v] = u;
+                        pq.enqueue(v, alt);
+                    }
+                });
+            }
+
+            console.log('Distancias calculadas:', distances);
+            console.log('Predecesores:', prev);
+
+            return prev;
+        }
+
+        function drawShortestPath(prev) {
+            let path = [];
+            let u = markers.length - 1;
+
+            while (prev[u] !== null) {
+                let route = routes[`${u}-${prev[u]}`];
+                if (route) {
+                    route.overview_path.forEach(point => path.push(point));
+                }
+                u = prev[u];
+            }
+
+            if (path.length > 0) {
+                let polyline = new google.maps.Polyline({
+                    path: path.reverse(),
+                    geodesic: true,
+                    strokeColor: '#FF0000',
+                    strokeOpacity: 1.0,
+                    strokeWeight: 2
+                });
+
+                polyline.setMap(map);
+
+                // Agregar la ventana de información
+                let distance = calculateTotalDistance(path);
+                let infoWindow = new google.maps.InfoWindow({
+                    content: `Distancia total: ${distance} metros`,
+                    position: path[Math.floor(path.length / 2)]
+                });
+
+                google.maps.event.addListener(polyline, 'mouseover', () => {
+                    infoWindow.open(map);
+                });
+                google.maps.event.addListener(polyline, 'mouseout', () => {
+                    infoWindow.close();
+                });
+            } else {
+                console.error('No se pudo dibujar la ruta, el camino más corto no tiene puntos.');
+            }
+        }
+
+        function calculateTotalDistance(path) {
+            let totalDistance = 0;
+            for (let i = 0; i < path.length - 1; i++) {
+                totalDistance += google.maps.geometry.spherical.computeDistanceBetween(path[i], path[i + 1]);
+            }
+            return totalDistance.toFixed(2);
+        }
+
+        class PriorityQueue {
+            constructor() {
+                this.items = [];
+            }
+
+            enqueue(element, priority) {
+                let item = {element, priority};
+                let added = false;
+
+                for (let i = 0; i < this.items.length; i++) {
+                    if (this.items[i].priority > item.priority) {
+                        this.items.splice(i, 0, item);
+                        added = true;
+                        break;
+                    }
+                }
+
+                if (!added) {
+                    this.items.push(item);
+                }
+            }
+
+            dequeue() {
+                return this.items.shift();
+            }
+
+            isEmpty() {
+                return this.items.length === 0;
+            }
+        }
+    </script>
+
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBrExhdHr4O69eYw9J22Wv9Zof8uQ7jUDg&libraries=geometry&callback=initMap"></script>
+</body>
+</html>
